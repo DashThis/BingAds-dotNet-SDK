@@ -52,6 +52,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Microsoft.BingAds.Internal
@@ -59,21 +60,19 @@ namespace Microsoft.BingAds.Internal
     internal class HttpService : IHttpService
     {
         private static readonly string UserAgent = string.Format("BingAdsSDK.NET_{0}", typeof(UserAgentBehavior).Assembly.GetName().Version);
+        private static readonly Lazy<HttpClient> Client = new Lazy<HttpClient>(() => new HttpClient {Timeout = Timeout.InfiniteTimeSpan});
+        private static readonly Lazy<HttpClient> HttpClientWithBingVersionHeader = new Lazy<HttpClient>(() => new HttpClient {Timeout = Timeout.InfiniteTimeSpan, DefaultRequestHeaders = {{"User-Agent", UserAgent}}});
 
         public Task<HttpResponseMessage> PostAsync(Uri requestUri, List<KeyValuePair<string, string>> formValues, TimeSpan timeout)
         {
-            var client = new HttpClient { Timeout = timeout };
-            client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-            return client.PostAsync(requestUri, new FormUrlEncodedContent(formValues));
+            return HttpClientWithBingVersionHeader.Value.PostAsync(requestUri, new FormUrlEncodedContent(formValues), new CancellationTokenSource(timeout).Token);
         }
 
         public async Task DownloadFileAsync(Uri fileUri, string localFilePath, bool overwrite, TimeSpan timeout)
         {
-            var client = new HttpClient { Timeout = timeout };
-
             try
             {
-                var response = await client.GetAsync(fileUri).ConfigureAwait(false);
+                var response = await Client.Value.GetAsync(fileUri, new CancellationTokenSource(timeout).Token).ConfigureAwait(false);
 
                 response.EnsureSuccessStatusCode();
 
@@ -90,9 +89,7 @@ namespace Microsoft.BingAds.Internal
         {
             using (var stream = File.OpenRead(uploadFilePath))
             {
-                var client = new HttpClient { Timeout = timeout };
-
-                addHeadersAction(client.DefaultRequestHeaders);
+                addHeadersAction(Client.Value.DefaultRequestHeaders);
 
                 var multiPart = new MultipartFormDataContent
                 {
@@ -101,7 +98,7 @@ namespace Microsoft.BingAds.Internal
 
                 try
                 {
-                    var response = await client.PostAsync(uri, multiPart).ConfigureAwait(false);
+                    var response = await Client.Value.PostAsync(uri, multiPart, new CancellationTokenSource(timeout).Token).ConfigureAwait(false);
                   
                     if (!response.IsSuccessStatusCode)
                     {
