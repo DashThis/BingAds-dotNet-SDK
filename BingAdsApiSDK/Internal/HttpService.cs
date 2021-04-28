@@ -61,18 +61,22 @@ namespace Microsoft.BingAds.Internal
     {
         private static readonly string UserAgent = string.Format("BingAdsSDK.NET_{0}", typeof(UserAgentBehavior).Assembly.GetName().Version);
         private static readonly Lazy<HttpClient> Client = new Lazy<HttpClient>(() => new HttpClient {Timeout = Timeout.InfiniteTimeSpan});
-        private static readonly Lazy<HttpClient> HttpClientWithBingVersionHeader = new Lazy<HttpClient>(() => new HttpClient {Timeout = Timeout.InfiniteTimeSpan, DefaultRequestHeaders = {{"User-Agent", UserAgent}}});
 
         public Task<HttpResponseMessage> PostAsync(Uri requestUri, List<KeyValuePair<string, string>> formValues, TimeSpan timeout)
         {
-            return HttpClientWithBingVersionHeader.Value.PostAsync(requestUri, new FormUrlEncodedContent(formValues), new CancellationTokenSource(timeout).Token);
+            var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
+            {
+                Content = new FormUrlEncodedContent(formValues),
+                Headers = { { "User-Agent", UserAgent } }
+            };
+            return Client.Value.SendAsync(request, CancelAfter(timeout));
         }
 
         public async Task DownloadFileAsync(Uri fileUri, string localFilePath, bool overwrite, TimeSpan timeout)
         {
             try
             {
-                var response = await Client.Value.GetAsync(fileUri, new CancellationTokenSource(timeout).Token).ConfigureAwait(false);
+                var response = await Client.Value.GetAsync(fileUri, CancelAfter(timeout)).ConfigureAwait(false);
 
                 response.EnsureSuccessStatusCode();
 
@@ -89,16 +93,16 @@ namespace Microsoft.BingAds.Internal
         {
             using (var stream = File.OpenRead(uploadFilePath))
             {
-                addHeadersAction(Client.Value.DefaultRequestHeaders);
-
                 var multiPart = new MultipartFormDataContent
                 {
-                    { new StreamContent(stream), "file", string.Format("\"{0}{1}\"", Guid.NewGuid(), Path.GetExtension(uploadFilePath)) }
+                    { new StreamContent(stream), "file", $"\"{Guid.NewGuid()}{Path.GetExtension(uploadFilePath)}\""}
                 };
+                var request = new HttpRequestMessage(HttpMethod.Post, uri) { Content = multiPart };
 
+                addHeadersAction(request.Headers);
                 try
                 {
-                    var response = await Client.Value.PostAsync(uri, multiPart, new CancellationTokenSource(timeout).Token).ConfigureAwait(false);
+                    var response = await Client.Value.SendAsync(request, CancelAfter(timeout)).ConfigureAwait(false);
                   
                     if (!response.IsSuccessStatusCode)
                     {
@@ -112,6 +116,11 @@ namespace Microsoft.BingAds.Internal
                     throw new CouldNotUploadFileException("Upload File failed.", e);
                 }
             }
+        }
+
+        private static CancellationToken CancelAfter(TimeSpan timeout)
+        {
+            return new CancellationTokenSource(timeout).Token;
         }
     }
 }
