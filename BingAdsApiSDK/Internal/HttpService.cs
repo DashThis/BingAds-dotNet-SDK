@@ -59,9 +59,7 @@ namespace Microsoft.BingAds.Internal
 {
     internal class HttpService : IHttpService
     {
-        private static readonly string UserAgent = string.Format("BingAdsSDK.NET_{0}", typeof(UserAgentBehavior).Assembly.GetName().Version);
-        private static readonly Lazy<HttpClient> Client = new Lazy<HttpClient>(() => new HttpClient {Timeout = Timeout.InfiniteTimeSpan});
-
+        private static readonly string UserAgent = $"BingAdsSDK.NET_{typeof(UserAgentBehavior).Assembly.GetName().Version}";
         public Task<HttpResponseMessage> PostAsync(Uri requestUri, List<KeyValuePair<string, string>> formValues, TimeSpan timeout)
         {
             var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
@@ -69,14 +67,14 @@ namespace Microsoft.BingAds.Internal
                 Content = new FormUrlEncodedContent(formValues),
                 Headers = { { "User-Agent", UserAgent } }
             };
-            return Client.Value.SendAsync(request, CancelAfter(timeout));
+            return HttpClientCustomFactory.Client.Value.SendAsync(request, CancelAfter(timeout));
         }
 
         public async Task DownloadFileAsync(Uri fileUri, string localFilePath, bool overwrite, TimeSpan timeout)
         {
             try
             {
-                var response = await Client.Value.GetAsync(fileUri, CancelAfter(timeout)).ConfigureAwait(false);
+                var response = await HttpClientCustomFactory.Client.Value.GetAsync(fileUri, CancelAfter(timeout)).ConfigureAwait(false);
 
                 response.EnsureSuccessStatusCode();
 
@@ -86,7 +84,7 @@ namespace Microsoft.BingAds.Internal
             {
                 throw new CouldNotDownloadResultFileException("Download File failed.", e);
             }
-            
+
         }
 
         public async Task UploadFileAsync(Uri uri, string uploadFilePath, Action<HttpRequestHeaders> addHeadersAction, TimeSpan timeout)
@@ -95,22 +93,23 @@ namespace Microsoft.BingAds.Internal
             {
                 var multiPart = new MultipartFormDataContent
                 {
-                    { new StreamContent(stream), "file", $"\"{Guid.NewGuid()}{Path.GetExtension(uploadFilePath)}\""}
+                    { new StreamContent(stream), "file", string.Format("\"{0}{1}\"", Guid.NewGuid(), Path.GetExtension(uploadFilePath)) }
                 };
                 var request = new HttpRequestMessage(HttpMethod.Post, uri) { Content = multiPart };
 
                 addHeadersAction(request.Headers);
+
                 try
                 {
-                    var response = await Client.Value.SendAsync(request, CancelAfter(timeout)).ConfigureAwait(false);
-                  
+                    var response = await HttpClientCustomFactory.Client.Value.SendAsync(request, CancelAfter(timeout)).ConfigureAwait(false);
+
                     if (!response.IsSuccessStatusCode)
                     {
                         var content = await response.Content.ReadAsStringAsync();
 
                         throw new CouldNotUploadFileException("Unsuccessful Status Code: " + response.StatusCode + "; Exception Message: " + content);
-                    }                                      
-                }            
+                    }
+                }
                 catch (Exception e)
                 {
                     throw new CouldNotUploadFileException("Upload File failed.", e);
